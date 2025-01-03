@@ -4,6 +4,7 @@ import time
 import google.generativeai as genai
 from dotenv import load_dotenv
 from groq import Groq
+import psycopg2
 import os
 
 load_dotenv()
@@ -17,11 +18,16 @@ groqClient = Groq(
 # Initialize the FastAPI app
 app = FastAPI()
 
+#connecting to db
+db_url = os.getenv("DATABASE_URL")
+
 # Define a request body schema
 class LLMRequest(BaseModel):
     systemPrompt: str
     query: str
     groundTruth: str
+
+
 
 # Define a POST route
 @app.post("/evaluate")
@@ -45,6 +51,8 @@ async def evaluate_llm(request: LLMRequest):
     }
 
 
+
+
 def LLMeval(systemPrompt, request, answer,groundTruth):
     chat_completion = groqClient.chat.completions.create(
     messages=[
@@ -65,5 +73,9 @@ def LLMeval(systemPrompt, request, answer,groundTruth):
 )
     return chat_completion.choices[0].message.content
 
+
+def get_db_connection():
+    conn = psycopg2.connect(db_url)
+    return conn
     
     
