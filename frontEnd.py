@@ -11,10 +11,11 @@ __login__obj = __login__(auth_token = st.secrets["courier_auth_token"],
 
 LOGGED_IN= __login__obj.build_login_ui()
 
-tabs = st.tabs(["Home", "Experiments"])
+
 
 if LOGGED_IN == True:
     
+    tabs = st.tabs(["Home", "Experiments"])
     with tabs[0]:
         st.header("Home")
         st.write("This is the LLM Evaluator platform where you can evaluate your queries against LLMs.")
@@ -26,13 +27,17 @@ if LOGGED_IN == True:
         systemPrompt = st.text_area("Input the system prompt","",height = 68)
         query = st.text_area("Enter your query","",height = 68)
         groundTruth = st.text_area("Enter the expected output","",height = 68)
+        metric = st.text_input("Name the metric you want to evaluate the LLM against")
+        metricDef = st.text_area("Define the metric")
 
         if st.button("Evaluate"):
             if query and systemPrompt and groundTruth:
                 payload = {
                     "query":query,
                     "systemPrompt": systemPrompt,
-                    "groundTruth": groundTruth
+                    "groundTruth": groundTruth,
+                    "metric": metric,
+                    "metricDef": metricDef
                 }
                 with st.spinner("Evaluating... Please wait!"):
                     try:
@@ -45,6 +50,7 @@ if LOGGED_IN == True:
                                 st.subheader("LLM output")
                                 st.write(f"**Answer:** {data['answer']}")   
                                 st.metric("Response Time (seconds)", f"{data['response_time']:.3f}")
+                                st.metric("FuzzRatio",f"{data['fuzzRatio']:.3f}")
                             with col2:    
                                 st.subheader("Evaluation")
                                 st.write(data.get("Groq Answer"))
