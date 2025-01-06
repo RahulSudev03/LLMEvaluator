@@ -5,10 +5,17 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 from groq import Groq
 from rapidfuzz import fuzz
+from supabase import create_client,Client
 import psycopg2
 import os
+import streamlit as st
 
 load_dotenv()
+
+#Getting supabase credentials
+url:str = os.getenv("supa_url")
+key:str = os.getenv("supa_key")
+supabase: Client = create_client(url, key)
 
 #Configuring Gemini
 genai.configure(api_key = os.getenv('GEMINI_API_KEY'))
@@ -21,6 +28,8 @@ app = FastAPI()
 
 #connecting to db
 db_url = os.getenv("DATABASE_URL")
+
+
 
 # Define a request body schema
 class LLMRequest(BaseModel):
@@ -106,5 +115,53 @@ def fuzzy_match(answer,ground_truth):
 def get_db_connection():
     conn = psycopg2.connect(db_url)
     return conn
+
+def save_experiment_for_user(desired_username,experiment_name, system_prompt, query, expected_output, answer, response_time, fuzz_ratio, groq_answer,metric,metricDef):
+        # Fetch user ID
+    response = (
+    supabase.table("user_authentication")
+    .select("id")
+    .eq("username", desired_username)
+    .execute()
+)
+    user_id = response.data[0]["id"]
+    
+    if user_id:
+        # Insert experiment
+        response = (
+        supabase.table("experiments")
+                .insert({
+                    "user_id": user_id,
+                    "experiment_name": experiment_name,
+                    "system_prompt": system_prompt,
+                    "query": query,
+                    "expected_output": expected_output,
+                    "answer": answer,
+                    "response_time": response_time,
+                    "fuzz_ratio": fuzz_ratio,
+                    "groq_answer": groq_answer,
+                    "metric": metric,
+                    "metric_definition": metricDef
+                    })
+                    .execute()
+                )
+        return True
+    else:
+        st.error("User not found in the database.")
+        return False
+
+
+def getUserExperiments(user_id):
+    response = (
+    supabase.table("experiments")
+    .select("*")  # Select all columns, or specify specific ones
+    .eq("user_id", user_id)  # Filter experiments for the current user
+    .execute()
+)
+    experiments = response.data
+    return experiments
+
+
+
     
     
