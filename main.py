@@ -83,7 +83,10 @@ async def call_mistral(request:LLMRequest):
     
     
     
-
+#Health check point
+@app.get("/")
+def health_check():
+    return {"status": "ok"}
 
 
 
