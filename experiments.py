@@ -2,6 +2,7 @@ from auth import __login__, get_logged_in_user
 from main import save_experiment_for_user
 import streamlit as st
 import requests
+import os
 
 # Display page header
 st.title("New Experiment")
@@ -30,7 +31,7 @@ if st.button("Evaluate"):
         }
         with st.spinner("Evaluating... Please wait!"):
             try:
-                response = requests.post("http://127.0.0.1:8000/evaluate", json=payload)
+                response = requests.post(os.getenv("backend_url"), json=payload)
                 if response.status_code == 200:
                     st.session_state.evaluation_results = response.json()
                     # Display evaluation results
