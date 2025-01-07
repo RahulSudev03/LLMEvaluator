@@ -9,6 +9,9 @@ from supabase import create_client,Client
 import psycopg2
 import os
 import streamlit as st
+from mistralai import Mistral
+import asyncio
+
 
 load_dotenv()
 
@@ -20,6 +23,13 @@ supabase: Client = create_client(url, key)
 #Configuring Gemini
 genai.configure(api_key = os.getenv('GEMINI_API_KEY'))
 
+#Configureing Mistral
+mistral_api_key = os.environ["MISTRAL_API_KEY"]
+model = "mistral-large-latest"
+
+mistralClient = Mistral(api_key=mistral_api_key)
+
+#Configuring groq
 groqClient = Groq(
     api_key = os.getenv('GROQ_API_KEY')
 )
@@ -39,32 +49,75 @@ class LLMRequest(BaseModel):
     metric:str
     metricDef:str
 
+async def call_gemini(request:LLMRequest):
+    start_time = time.time()
+    model=genai.GenerativeModel(
+    model_name="gemini-1.5-flash",
+    system_instruction = request.systemPrompt)
+    response = model.generate_content(request.query)
+    answer = response.text
+    response_time = time.time() - start_time
+    return{
+        "answer":answer,
+        "response_time":response_time
+    }
+
+async def call_mistral(request:LLMRequest):
+    start_time = time.time()
+    chat_response = mistralClient.chat.complete(
+    model = model,
+    messages = [
+        {
+            "role": "user",
+            "content": request.query,
+        },
+    ]
+    )
+    response_time = time.time() - start_time
+    return{
+        "answer":chat_response.choices[0].message.content,
+        "response_time": response_time
+    }
+    
+    
+    
+    
+    
+
+
 
 
 # Define a POST route
 @app.post("/evaluate")
 async def evaluate_llm(request: LLMRequest):
-    start_time = time.time()
     systemPrompt  = request.systemPrompt
-    model=genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
-    system_instruction = systemPrompt)
-    response = model.generate_content(request.query)
-    answer = response.text
-    
+    try:
+        response_gemini, response_mistral = await asyncio.gather(
+            call_gemini(request),
+            call_mistral(request)
+        )
+    except Exception as e:
+        return {"error": f"Failed to evaluate LLMs: {str(e)}"}
         
-    # Calculate response time
-    response_time = time.time() - start_time
-    evalResponse = LLMeval(systemPrompt, request.query, answer,request.groundTruth,request.metric, request.metricDef)
+    geminiEvalResponse = LLMeval(systemPrompt, request.query, response_gemini["answer"],request.groundTruth,request.metric, request.metricDef)
     
-    fuzzRatio = fuzzy_match(answer, request.groundTruth)
+    mistralEvalResponse = LLMeval(systemPrompt, request.query, response_mistral["answer"],request.groundTruth,request.metric, request.metricDef)
+    
+    gemini_fuzzRatio = fuzzy_match(response_gemini["answer"], request.groundTruth)
+    mistral_fuzzRatio = fuzzy_match(response_mistral["answer"], request.groundTruth)
 
     return{
-        "answer": answer.strip(),
-        "response_time":response_time,
-        "fuzzRatio": fuzzRatio,
-        "Groq Answer": evalResponse
+        "gemini_answer": response_gemini["answer"],
+        "mistral_answer":response_mistral["answer"],
+        "gemini_response_time":response_gemini["response_time"],
+        "mistral_response_time":response_mistral["response_time"],
+        "geminiFuzzRatio": gemini_fuzzRatio,
+        "mistralFuzzRatio":mistral_fuzzRatio,
+        "geminiEval": geminiEvalResponse,
+        "mistralEval":mistralEvalResponse
     }
+
+
 
 
 
@@ -116,35 +169,42 @@ def get_db_connection():
     conn = psycopg2.connect(db_url)
     return conn
 
-def save_experiment_for_user(desired_username,experiment_name, system_prompt, query, expected_output, answer, response_time, fuzz_ratio, groq_answer,metric,metricDef):
-        # Fetch user ID
+def save_experiment_for_user(desired_username, experiment_name, system_prompt, query, expected_output, gemini_answer, gemini_response_time, gemini_fuzz_ratio, gemini_groq_answer, mistral_answer, mistral_response_time, mistral_fuzz_ratio, mistral_groq_answer, metric, metricDef):
+    # Fetch user ID
     response = (
-    supabase.table("user_authentication")
-    .select("id")
-    .eq("username", desired_username)
-    .execute()
-)
+        supabase.table("user_authentication")
+        .select("id")
+        .eq("username", desired_username)
+        .execute()
+    )
     user_id = response.data[0]["id"]
-    
+
     if user_id:
         # Insert experiment
         response = (
-        supabase.table("experiments")
-                .insert({
-                    "user_id": user_id,
-                    "experiment_name": experiment_name,
-                    "system_prompt": system_prompt,
-                    "query": query,
-                    "expected_output": expected_output,
-                    "answer": answer,
-                    "response_time": response_time,
-                    "fuzz_ratio": fuzz_ratio,
-                    "groq_answer": groq_answer,
-                    "metric": metric,
-                    "metric_definition": metricDef
-                    })
-                    .execute()
-                )
+            supabase.table("experiments")
+            .insert({
+                "user_id": user_id,
+                "experiment_name": experiment_name,
+                "system_prompt": system_prompt,
+                "query": query,
+                "expected_output": expected_output,
+                # Gemini fields
+                "gemini_answer": gemini_answer,
+                "gemini_response_time": gemini_response_time,
+                "gemini_fuzz_ratio": gemini_fuzz_ratio,
+                "gemini_evaluation": gemini_groq_answer,
+                # Mistral fields
+                "mistral_answer": mistral_answer,
+                "mistral_response_time": mistral_response_time,
+                "mistral_fuzz_ratio": mistral_fuzz_ratio,
+                "mistral_evaluation": mistral_groq_answer,
+                # Metric fields
+                "metric": metric,
+                "metric_definition": metricDef
+            })
+            .execute()
+        )
         return True
     else:
         st.error("User not found in the database.")
